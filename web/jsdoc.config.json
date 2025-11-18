@@ -1,0 +1,20 @@
+{
+  "source": {
+    "include": ["./src"],
+    "includePattern": "\\.(js)$",
+    "exclude": ["node_modules/", ".svelte-kit/"],
+    "excludePattern": "\\.(svelte)$"
+  },
+  "opts": {
+    "destination": "./docs/"
+  },
+  "plugins": ["plugins/markdown"],
+  "tags": {
+    "allowUnknownTags": true,
+    "dictionaries": ["jsdoc", "closure"]
+  },
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  }
+}
