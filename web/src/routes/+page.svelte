@@ -1,171 +1,169 @@
 <script>
-	import { formatDate, apiRequest, publishEvent, getNATSStats } from '$lib/utils.js';
-	import { onMount } from 'svelte';
+  import { onMount } from 'svelte';
+  
+  let apiHealth = null;
+  let currentTimer = null;
+  let loading = false;
 
-	/** @type {string} */
-	let healthStatus = 'Checking...';
-	
-	/** @type {string} */
-	let currentDate = '';
+  onMount(async () => {
+    await checkApiHealth();
+    await getCurrentTimer();
+  });
 
-	/** 
-	 * @type {{
-	 *   connections: number,
-	 *   subscriptions: number,
-	 *   messages: {in: number, out: number},
-	 *   bytes: {in: number, out: number},
-	 *   uptime: string
-	 * }|null} 
-	 */
-	let natsStats = null;
+  async function checkApiHealth() {
+    try {
+      const response = await fetch('/api/health');
+      apiHealth = await response.json();
+    } catch (error) {
+      console.error('API health check failed:', error);
+      apiHealth = { status: 'error', error: error.message };
+    }
+  }
 
-	/** @type {number} */
-	let eventCount = 0;
+  async function getCurrentTimer() {
+    try {
+      const response = await fetch('/api/time/current?user_id=demo-user');
+      const result = await response.json();
+      currentTimer = result.success ? result.data : null;
+    } catch (error) {
+      console.error('Failed to get current timer:', error);
+    }
+  }
 
-	/**
-	 * Check the API health status
-	 * @returns {Promise<void>}
-	 */
-	async function checkHealth() {
-		// Publish event for health check
-		await publishEvent('health_check_request', { 
-			timestamp: Date.now(),
-			source: 'frontend_button'
-		});
+  async function startTimer() {
+    loading = true;
+    try {
+      const response = await fetch('/api/time/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: 'demo-user',
+          project_id: 'demo-project',
+          description: 'Working on freelancer app'
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        currentTimer = result.data;
+      }
+    } catch (error) {
+      console.error('Failed to start timer:', error);
+    } finally {
+      loading = false;
+    }
+  }
 
-		const response = await apiRequest('/api/health');
-		if (response.success) {
-			healthStatus = `✅ ${response.data.status}`;
-		} else {
-			healthStatus = `❌ ${response.error}`;
-		}
-		
-		eventCount++;
-		await refreshNATSStats();
-	}
-
-	/**
-	 * Refresh NATS statistics
-	 * @returns {Promise<void>}
-	 */
-	async function refreshNATSStats() {
-		const response = await getNATSStats();
-		if (response.success) {
-			natsStats = response.data;
-		}
-	}
-
-	/**
-	 * Send a test event
-	 * @returns {Promise<void>}
-	 */
-	async function sendTestEvent() {
-		await publishEvent('user_interaction', {
-			action: 'test_event_button_click',
-			timestamp: Date.now(),
-			userAgent: navigator.userAgent
-		});
-		
-		eventCount++;
-		await refreshNATSStats();
-	}
-
-	onMount(() => {
-		currentDate = formatDate(new Date(), {
-			formatOptions: { 
-				weekday: 'long', 
-				year: 'numeric', 
-				month: 'long', 
-				day: 'numeric' 
-			}
-		});
-		checkHealth();
-		refreshNATSStats();
-	});
+  async function stopTimer() {
+    loading = true;
+    try {
+      const response = await fetch('/api/time/stop?user_id=demo-user', {
+        method: 'POST'
+      });
+      const result = await response.json();
+      if (result.success) {
+        currentTimer = null;
+      }
+    } catch (error) {
+      console.error('Failed to stop timer:', error);
+    } finally {
+      loading = false;
+    }
+  }
 </script>
 
-<div class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-	<div class="max-w-2xl w-full space-y-6">
-		<!-- Main App Info -->
-		<div class="bg-white rounded-lg shadow-md p-6">
-			<h1 class="text-2xl font-bold text-gray-900 mb-4">Svelte + Go App</h1>
-			<p class="text-gray-600 mb-4">Event-driven architecture with embedded NATS</p>
-			
-			<div class="space-y-2 text-sm">
-				<div class="flex justify-between">
-					<span class="text-gray-500">Date:</span>
-					<span class="text-gray-700">{currentDate}</span>
-				</div>
-				<div class="flex justify-between">
-					<span class="text-gray-500">API Status:</span>
-					<span class="text-gray-700">{healthStatus}</span>
-				</div>
-				<div class="flex justify-between">
-					<span class="text-gray-500">Events Sent:</span>
-					<span class="text-gray-700">{eventCount}</span>
-				</div>
-			</div>
-			
-			<div class="flex space-x-3 mt-4">
-				<button 
-					class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded transition-colors"
-					on:click={checkHealth}
-				>
-					Health Check
-				</button>
-				<button 
-					class="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded transition-colors"
-					on:click={sendTestEvent}
-				>
-					Send Event
-				</button>
-			</div>
-		</div>
+<div class="space-y-8">
+  <!-- Header -->
+  <div class="text-center">
+    <h2 class="text-3xl font-bold text-gray-900 mb-2">Freelancer Dashboard</h2>
+    <p class="text-gray-600">Track your time and manage your freelance projects</p>
+  </div>
 
-		<!-- NATS Statistics -->
-		{#if natsStats}
-		<div class="bg-white rounded-lg shadow-md p-6">
-			<h2 class="text-xl font-bold text-gray-900 mb-4">NATS Server Stats</h2>
-			
-			<div class="grid grid-cols-2 gap-4 text-sm">
-				<div class="space-y-2">
-					<div class="flex justify-between">
-						<span class="text-gray-500">Connections:</span>
-						<span class="text-gray-700">{natsStats?.connections ?? 0}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-gray-500">Subscriptions:</span>
-						<span class="text-gray-700">{natsStats?.subscriptions ?? 0}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-gray-500">Uptime:</span>
-						<span class="text-gray-700">{natsStats?.uptime ?? 'N/A'}</span>
-					</div>
-				</div>
-				
-				<div class="space-y-2">
-					<div class="flex justify-between">
-						<span class="text-gray-500">Messages In:</span>
-						<span class="text-gray-700">{natsStats?.messages?.in ?? 0}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-gray-500">Messages Out:</span>
-						<span class="text-gray-700">{natsStats?.messages?.out ?? 0}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-gray-500">Bytes In:</span>
-						<span class="text-gray-700">{natsStats?.bytes?.in ? (natsStats.bytes.in / 1024).toFixed(1) : '0.0'} KB</span>
-					</div>
-				</div>
-			</div>
-			
-			<button 
-				class="mt-4 w-full bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded transition-colors"
-				on:click={refreshNATSStats}
-			>
-				Refresh Stats
-			</button>
-		</div>
-		{/if}
-	</div>
+  <!-- API Status -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">API Status</h3>
+    {#if apiHealth}
+      <div class="flex items-center space-x-2">
+        {#if apiHealth.status === 'healthy'}
+          <div class="w-3 h-3 bg-green-400 rounded-full"></div>
+          <span class="text-green-700 font-medium">API Connected</span>
+        {:else}
+          <div class="w-3 h-3 bg-red-400 rounded-full"></div>
+          <span class="text-red-700 font-medium">API Error</span>
+        {/if}
+      </div>
+      <div class="mt-2 text-sm text-gray-500">
+        Architecture: {apiHealth.architecture || 'Unknown'} | Database: {apiHealth.database || 'Unknown'}
+      </div>
+    {:else}
+      <div class="text-gray-500">Checking API status...</div>
+    {/if}
+  </div>
+
+  <!-- Timer Widget -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Timer</h3>
+    
+    {#if currentTimer}
+      <div class="text-center">
+        <div class="text-4xl font-mono font-bold text-blue-600 mb-2">
+          ⏱️ Running
+        </div>
+        <div class="text-gray-600 mb-2">
+          Project: {currentTimer.project_id}
+        </div>
+        <div class="text-gray-500 mb-4">
+          {currentTimer.description}
+        </div>
+        <div class="text-sm text-gray-400 mb-4">
+          Started: {new Date(currentTimer.start_time).toLocaleTimeString()}
+        </div>
+        <button 
+          on:click={stopTimer}
+          disabled={loading}
+          class="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded-md"
+        >
+          {loading ? 'Stopping...' : 'Stop Timer'}
+        </button>
+      </div>
+    {:else}
+      <div class="text-center">
+        <div class="text-4xl font-mono font-bold text-gray-400 mb-2">
+          ⏸️ Idle
+        </div>
+        <div class="text-gray-500 mb-4">
+          No active timer
+        </div>
+        <button 
+          on:click={startTimer}
+          disabled={loading}
+          class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded-md"
+        >
+          {loading ? 'Starting...' : 'Start Timer'}
+        </button>
+      </div>
+    {/if}
+  </div>
+
+  <!-- Quick Stats -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="bg-white rounded-lg shadow p-6">
+      <h4 class="text-lg font-semibold text-gray-900 mb-2">Today</h4>
+      <div class="text-2xl font-bold text-blue-600">2h 30m</div>
+      <div class="text-sm text-gray-500">Time tracked</div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow p-6">
+      <h4 class="text-lg font-semibold text-gray-900 mb-2">This Week</h4>
+      <div class="text-2xl font-bold text-green-600">18h 45m</div>
+      <div class="text-sm text-gray-500">Total hours</div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow p-6">
+      <h4 class="text-lg font-semibold text-gray-900 mb-2">Earnings</h4>
+      <div class="text-2xl font-bold text-purple-600">$1,406</div>
+      <div class="text-sm text-gray-500">This month</div>
+    </div>
+  </div>
 </div>

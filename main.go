@@ -2,109 +2,134 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
+	"path/filepath"
 	"syscall"
 	"time"
 
-	"svelte-go/internal/db"
 	"svelte-go/internal/events"
-	"svelte-go/internal/handlers"
+	"svelte-go/internal/modules/client"
+	"svelte-go/internal/modules/expense"
+	"svelte-go/internal/modules/invoice"
+	timemodule "svelte-go/internal/modules/time"
+	"svelte-go/internal/shared/database"
+	"svelte-go/internal/shared/types"
 )
 
 func main() {
-	database, err := db.Init()
+	// Initialize shared database
+	db, err := database.NewBadgerDB("./data/freelancer_db")
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
-	defer database.Close()
+	defer db.Close()
 
-	// Initialize NATS embedded server
-	natsService, err := events.NewNATSService()
+	// Initialize event bus
+	eventBus, err := events.NewEventBus()
 	if err != nil {
-		log.Fatal("Failed to initialize NATS:", err)
+		log.Fatal("Failed to initialize event bus:", err)
 	}
-	defer natsService.Close()
+	defer eventBus.Close()
 
-	h := handlers.New(database, natsService)
-
-	// Find available port for SvelteKit server
-	sveltePort := findAvailablePort(3001)
-	log.Printf("Using port %d for SvelteKit server", sveltePort)
-
-	// Start SvelteKit SSR server
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	svelteCmd := exec.CommandContext(ctx, "bun", "run", "web/build/index.js")
-	svelteCmd.Env = append(os.Environ(),
-		"PORT="+fmt.Sprintf("%d", sveltePort),
-		"HOST=127.0.0.1")
-
-	// Start SvelteKit server
-	if err := svelteCmd.Start(); err != nil {
-		log.Fatal("Failed to start SvelteKit server:", err)
-	}
-	defer func() {
-		if svelteCmd.Process != nil {
-			svelteCmd.Process.Kill()
-		}
-	}()
-
-	// Wait for SvelteKit server to be ready with proper health check
-	svelteURL := fmt.Sprintf("http://127.0.0.1:%d", sveltePort)
-	if !waitForServer(svelteURL, 10*time.Second) {
-		log.Fatal("SvelteKit server failed to become ready")
-	}
-
-	// Create reverse proxy for SvelteKit
-	parsedURL, _ := url.Parse(svelteURL)
-	svelteProxy := httputil.NewSingleHostReverseProxy(parsedURL)
-
+	// Initialize modules
+	log.Println("🏗️  Initializing modular monolith...")
+	
+	// Time tracking module
+	timeService := timemodule.NewService(eventBus, db)
+	timeHandlers := timemodule.NewHandlers(timeService)
+	
+	// Expense tracking module
+	expenseService := expense.NewService(eventBus, db)
+	expenseHandlers := expense.NewHandlers(expenseService)
+	
+	// Client & project management module
+	clientService := client.NewService(eventBus, db)
+	clientHandlers := client.NewHandlers(clientService)
+	
+	// Invoice generation module
+	invoiceService := invoice.NewService(eventBus, db)
+	invoiceHandlers := invoice.NewHandlers(invoiceService)
+	
+	// Set up HTTP routes
 	mux := http.NewServeMux()
-
-	// API routes
-	mux.HandleFunc("/api/health", h.Health)
-	mux.HandleFunc("/api/events", h.Events)
-	mux.HandleFunc("/api/nats/stats", h.NATSStats)
-
-	// Proxy everything else to SvelteKit SSR server
+	
+	// Module routes
+	timeHandlers.SetupRoutes(mux)
+	expenseHandlers.SetupRoutes(mux)
+	clientHandlers.SetupRoutes(mux)
+	invoiceHandlers.SetupRoutes(mux)
+	
+	// System routes
+	mux.HandleFunc("/api/health", handleOverallHealth(db, eventBus))
+	
+	// Serve static frontend files
+	staticDir := "./web/build"
+	fileServer := http.FileServer(http.Dir(staticDir))
+	
+	// Handle SPA routing by serving index.html for non-API routes
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip API routes
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// Serve API routes normally
+		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
 			http.NotFound(w, r)
 			return
 		}
-
-		// Proxy to SvelteKit
-		svelteProxy.ServeHTTP(w, r)
+		
+		// Try to serve the requested file
+		filePath := filepath.Join(staticDir, r.URL.Path)
+		if _, err := os.Stat(filePath); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		
+		// If file doesn't exist, serve index.html for SPA routing
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 	}))
+	
+	// Publish system startup event
+	startupEvent := types.NewEvent("system_started", "main", map[string]interface{}{
+		"modules": []string{"time", "expense", "client", "invoice"},
+		"architecture": "modular_monolith",
+		"database": "badger",
+		"events": "nats_embedded",
+		"start_time": time.Now(),
+	})
+	eventBus.Publish("system.startup", startupEvent)
 
+	// HTTP server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	// Handle graceful shutdown
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
 	server := &http.Server{
 		Addr:    ":" + port,
 		Handler: mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
+	// Graceful shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
-		log.Printf("Server starting on port %s", port)
-		log.Printf("Frontend (SSR) and API available at http://localhost:%s", port)
+		log.Printf("🚀 Freelancer app starting on port %s", port)
+		log.Printf("📡 Event-driven modular monolith")
+		log.Printf("🗄️  Database: Badger (%s)", "./data/freelancer_db")
+		log.Printf("📊 Available endpoints:")
+		log.Printf("   GET  /api/health          - Overall health")
+		log.Printf("   POST /api/time/start      - Start timer")
+		log.Printf("   POST /api/time/stop       - Stop timer")
+		log.Printf("   GET  /api/time/current    - Current timer")
+		log.Printf("   POST /api/time/pause      - Pause timer")
+		log.Printf("   POST /api/time/resume     - Resume timer")
+		log.Printf("   PUT  /api/time/update     - Update timer")
+		log.Printf("   GET  /health              - Time module health")
+		
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Server failed:", err)
 		}
@@ -112,45 +137,41 @@ func main() {
 
 	// Wait for interrupt signal
 	<-c
-	log.Println("Shutting down...")
+	log.Println("📤 Shutting down...")
 
-	// Shutdown server
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Publish shutdown event
+	shutdownEvent := types.NewEvent("system_shutdown", "main", map[string]interface{}{
+		"reason": "signal",
+		"uptime_seconds": time.Now().Unix(),
+	})
+	eventBus.Publish("system.shutdown", shutdownEvent)
+
+	// Graceful shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
+	
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
+
+	log.Println("✅ Freelancer app stopped gracefully")
 }
 
-// findAvailablePort finds an available port starting from the given port
-func findAvailablePort(startPort int) int {
-	for port := startPort; port < startPort+100; port++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		if err == nil {
-			ln.Close()
-			return port
-		}
+// handleOverallHealth returns overall system health
+func handleOverallHealth(db *database.BadgerDB, eventBus *events.EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		
+		response := `{
+			"status": "healthy",
+			"architecture": "modular_monolith",
+			"database": "badger", 
+			"events": "nats_embedded",
+			"modules": ["time"],
+			"timestamp": "` + time.Now().Format(time.RFC3339) + `"
+		}`
+		
+		w.Write([]byte(response))
 	}
-	log.Fatal("No available ports found")
-	return startPort
-}
-
-// waitForServer waits for a server to become ready by making HTTP requests
-func waitForServer(url string, timeout time.Duration) bool {
-	client := &http.Client{
-		Timeout: 1 * time.Second,
-	}
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode < 500 {
-				return true
-			}
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return false
 }
