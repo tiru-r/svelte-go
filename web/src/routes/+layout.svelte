@@ -12,7 +12,9 @@
         <div class="flex space-x-4">
           <a href="/" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">Dashboard</a>
           <a href="/timer" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">Timer</a>
-          <a href="/projects" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">Projects</a>
+          <a href="/clients" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">Clients</a>
+          <a href="/expenses" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">Expenses</a>
+          <a href="/invoices" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">Invoices</a>
         </div>
       </div>
     </div>
