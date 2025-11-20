@@ -9,25 +9,25 @@ import (
 
 // Event represents a domain event in the system
 type Event struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Source      string                 `json:"source"`
-	AggregateID string                 `json:"aggregate_id,omitempty"`
-	Version     int                    `json:"version"`
-	Data        map[string]interface{} `json:"data"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Source      string         `json:"source"`
+	AggregateID string         `json:"aggregate_id,omitempty"`
+	Version     int            `json:"version"`
+	Data        map[string]any `json:"data"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	Timestamp   time.Time      `json:"timestamp"`
 }
 
 // NewEvent creates a new event with generated ID and timestamp
-func NewEvent(eventType, source string, data map[string]interface{}) *Event {
+func NewEvent(eventType, source string, data map[string]any) *Event {
 	return &Event{
 		ID:        uuid.New().String(),
 		Type:      eventType,
 		Source:    source,
 		Version:   1,
 		Data:      data,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 		Timestamp: time.Now(),
 	}
 }
@@ -39,9 +39,9 @@ func (e *Event) WithAggregateID(id string) *Event {
 }
 
 // WithMetadata adds metadata to the event
-func (e *Event) WithMetadata(key string, value interface{}) *Event {
+func (e *Event) WithMetadata(key string, value any) *Event {
 	if e.Metadata == nil {
-		e.Metadata = make(map[string]interface{})
+		e.Metadata = make(map[string]any)
 	}
 	e.Metadata[key] = value
 	return e

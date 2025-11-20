@@ -36,39 +36,39 @@ func main() {
 
 	// Initialize modules
 	log.Println("🏗️  Initializing modular monolith...")
-	
+
 	// Time tracking module
-	timeService := timemodule.NewService(eventBus, db)
+	timeService := timemodule.NewService(eventBus, db.DB())
 	timeHandlers := timemodule.NewHandlers(timeService)
-	
+
 	// Expense tracking module
-	expenseService := expense.NewService(eventBus, db)
+	expenseService := expense.NewService(eventBus, db.DB())
 	expenseHandlers := expense.NewHandlers(expenseService)
-	
+
 	// Client & project management module
-	clientService := client.NewService(eventBus, db)
+	clientService := client.NewService(eventBus, db.DB())
 	clientHandlers := client.NewHandlers(clientService)
-	
+
 	// Invoice generation module
-	invoiceService := invoice.NewService(eventBus, db)
+	invoiceService := invoice.NewService(eventBus, db.DB())
 	invoiceHandlers := invoice.NewHandlers(invoiceService)
-	
+
 	// Set up HTTP routes
 	mux := http.NewServeMux()
-	
+
 	// Module routes
 	timeHandlers.SetupRoutes(mux)
 	expenseHandlers.SetupRoutes(mux)
 	clientHandlers.SetupRoutes(mux)
 	invoiceHandlers.SetupRoutes(mux)
-	
+
 	// System routes
 	mux.HandleFunc("/api/health", handleOverallHealth(db, eventBus))
-	
+
 	// Serve static frontend files
 	staticDir := "./web/build"
 	fileServer := http.FileServer(http.Dir(staticDir))
-	
+
 	// Handle SPA routing by serving index.html for non-API routes
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve API routes normally
@@ -76,25 +76,25 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		
+
 		// Try to serve the requested file
 		filePath := filepath.Join(staticDir, r.URL.Path)
 		if _, err := os.Stat(filePath); err == nil {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// If file doesn't exist, serve index.html for SPA routing
 		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 	}))
-	
+
 	// Publish system startup event
-	startupEvent := types.NewEvent("system_started", "main", map[string]interface{}{
-		"modules": []string{"time", "expense", "client", "invoice"},
+	startupEvent := types.NewEvent("system_started", "main", map[string]any{
+		"modules":      []string{"time", "expense", "client", "invoice"},
 		"architecture": "modular_monolith",
-		"database": "badger",
-		"events": "nats_embedded",
-		"start_time": time.Now(),
+		"database":     "badger",
+		"events":       "nats_embedded",
+		"start_time":   time.Now(),
 	})
 	eventBus.Publish("system.startup", startupEvent)
 
@@ -105,8 +105,8 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: mux,
+		Addr:         ":" + port,
+		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -129,7 +129,7 @@ func main() {
 		log.Printf("   POST /api/time/resume     - Resume timer")
 		log.Printf("   PUT  /api/time/update     - Update timer")
 		log.Printf("   GET  /health              - Time module health")
-		
+
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Server failed:", err)
 		}
@@ -140,8 +140,8 @@ func main() {
 	log.Println("📤 Shutting down...")
 
 	// Publish shutdown event
-	shutdownEvent := types.NewEvent("system_shutdown", "main", map[string]interface{}{
-		"reason": "signal",
+	shutdownEvent := types.NewEvent("system_shutdown", "main", map[string]any{
+		"reason":         "signal",
 		"uptime_seconds": time.Now().Unix(),
 	})
 	eventBus.Publish("system.shutdown", shutdownEvent)
@@ -149,7 +149,7 @@ func main() {
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	
+
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
@@ -161,17 +161,36 @@ func main() {
 func handleOverallHealth(db *database.BadgerDB, eventBus *events.EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		
+
+		// Check database health
+		dbStatus := "healthy"
+		if db == nil {
+			dbStatus = "unhealthy"
+		}
+
+		// Check event bus health
+		eventsStatus := "healthy"
+		if eventBus == nil {
+			eventsStatus = "unhealthy"
+		}
+
+		status := "healthy"
+		if dbStatus != "healthy" || eventsStatus != "healthy" {
+			status = "unhealthy"
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+
 		response := `{
-			"status": "healthy",
+			"status": "` + status + `",
 			"architecture": "modular_monolith",
-			"database": "badger", 
-			"events": "nats_embedded",
-			"modules": ["time"],
+			"database": {"status": "` + dbStatus + `", "type": "badger"}, 
+			"events": {"status": "` + eventsStatus + `", "type": "nats_embedded"},
+			"modules": ["time", "expense", "client", "invoice"],
 			"timestamp": "` + time.Now().Format(time.RFC3339) + `"
 		}`
-		
+
 		w.Write([]byte(response))
 	}
 }

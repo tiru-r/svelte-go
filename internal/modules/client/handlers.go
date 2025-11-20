@@ -26,7 +26,7 @@ func (h *Handlers) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/project/client", h.handleGetClientProjects)
 	mux.HandleFunc("PUT /api/project/update", h.handleUpdateProject)
 	mux.HandleFunc("GET /api/client/health", h.handleHealth)
-	
+
 	log.Println("Client API routes configured")
 }
 
@@ -87,8 +87,8 @@ func (h *Handlers) handleGetClients(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ClientID string                 `json:"client_id"`
-		Updates  map[string]interface{} `json:"updates"`
+		ClientID string         `json:"client_id"`
+		Updates  map[string]any `json:"updates"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -196,8 +196,8 @@ func (h *Handlers) handleGetClientProjects(w http.ResponseWriter, r *http.Reques
 
 func (h *Handlers) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProjectID string                 `json:"project_id"`
-		Updates   map[string]interface{} `json:"updates"`
+		ProjectID string         `json:"project_id"`
+		Updates   map[string]any `json:"updates"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -226,7 +226,7 @@ func (h *Handlers) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":    "healthy",
 		"module":    "client",
 		"timestamp": time.Now(),

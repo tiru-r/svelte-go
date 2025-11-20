@@ -5,19 +5,20 @@ import (
 	"log"
 	"time"
 
-	"svelte-go/internal/shared/database"
 	"svelte-go/internal/shared/types"
+
+	"github.com/dgraph-io/badger/v4"
 )
 
 type Service struct {
 	eventBus types.EventBus
-	db       *database.BadgerDB
+	repo     *Repository
 }
 
-func NewService(eventBus types.EventBus, db *database.BadgerDB) *Service {
+func NewService(eventBus types.EventBus, db *badger.DB) *Service {
 	service := &Service{
 		eventBus: eventBus,
-		db:       db,
+		repo:     NewRepository(db),
 	}
 
 	service.setupEventSubscriptions()
@@ -27,7 +28,7 @@ func NewService(eventBus types.EventBus, db *database.BadgerDB) *Service {
 func (s *Service) setupEventSubscriptions() {
 	s.eventBus.SubscribeQueue("time.entry.completed", "invoice_service", s.handleTimeEntryCompleted)
 	s.eventBus.SubscribeQueue("expense.created", "invoice_service", s.handleExpenseCreated)
-	
+
 	log.Println("Invoice service event subscriptions configured")
 }
 
@@ -51,35 +52,26 @@ func (s *Service) CreateInvoice(userID, clientID, projectID string, items []type
 		UpdatedAt:   time.Now(),
 	}
 
-	err := s.db.InvoiceRepo.Create(invoice)
+	err := s.repo.Create(invoice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create invoice: %w", err)
 	}
 
-	event := types.NewEvent("invoice_created", "invoice_service", map[string]interface{}{
+	event := types.NewEvent("invoice_created", "invoice_service", map[string]any{
 		"invoice_id":   invoice.ID,
 		"client_id":    invoice.ClientID,
 		"project_id":   invoice.ProjectID,
 		"total_amount": invoice.TotalAmount,
 		"status":       invoice.Status,
 	})
-	
+
 	s.eventBus.Publish("invoice.created", event)
 	log.Printf("📄 Invoice created: %s ($%.2f)", invoice.Number, invoice.TotalAmount)
-	
+
 	return invoice, nil
 }
 
-func (s *Service) GenerateFromTimeEntries(userID, clientID, projectID string, startDate, endDate time.Time) (*types.Invoice, error) {
-	timeEntries, err := s.db.TimeEntryRepo.GetByProjectIDAndDateRange(projectID, startDate, endDate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get time entries: %w", err)
-	}
-
-	project, err := s.db.ProjectRepo.GetByID(projectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project: %w", err)
-	}
+func (s *Service) GenerateFromTimeEntries(userID, clientID, projectID string, hourlyRate float64, timeEntries []*types.TimeEntry) (*types.Invoice, error) {
 
 	var items []types.InvoiceItem
 	var totalHours float64
@@ -88,12 +80,12 @@ func (s *Service) GenerateFromTimeEntries(userID, clientID, projectID string, st
 		if entry.EndTime != nil {
 			hours := entry.EndTime.Sub(entry.StartTime).Hours()
 			totalHours += hours
-			
+
 			items = append(items, types.InvoiceItem{
 				Description: entry.Description,
 				Quantity:    hours,
-				Rate:        project.HourlyRate,
-				Amount:      hours * project.HourlyRate,
+				Rate:        hourlyRate,
+				Amount:      hours * hourlyRate,
 			})
 		}
 	}
@@ -107,32 +99,31 @@ func (s *Service) GenerateFromTimeEntries(userID, clientID, projectID string, st
 		return nil, err
 	}
 
-	event := types.NewEvent("invoice_generated", "invoice_service", map[string]interface{}{
+	event := types.NewEvent("invoice_generated", "invoice_service", map[string]any{
 		"invoice_id":   invoice.ID,
 		"client_id":    invoice.ClientID,
 		"project_id":   invoice.ProjectID,
 		"total_hours":  totalHours,
 		"total_amount": invoice.TotalAmount,
-		"period_start": startDate,
-		"period_end":   endDate,
+		"entry_count":  len(timeEntries),
 	})
-	
+
 	s.eventBus.Publish("invoice.generated", event)
 	log.Printf("🧾 Invoice generated from %.1f hours of work", totalHours)
-	
+
 	return invoice, nil
 }
 
 func (s *Service) GetInvoices(userID string) ([]*types.Invoice, error) {
-	return s.db.InvoiceRepo.GetByUserID(userID)
+	return s.repo.GetByUserID(userID)
 }
 
 func (s *Service) GetInvoicesByClient(clientID string) ([]*types.Invoice, error) {
-	return s.db.InvoiceRepo.GetByClientID(clientID)
+	return s.repo.GetByClientID(clientID)
 }
 
 func (s *Service) UpdateInvoiceStatus(invoiceID, status string) (*types.Invoice, error) {
-	invoice, err := s.db.InvoiceRepo.GetByID(invoiceID)
+	invoice, err := s.repo.GetByID(invoiceID)
 	if err != nil {
 		return nil, fmt.Errorf("invoice not found: %w", err)
 	}
@@ -145,31 +136,31 @@ func (s *Service) UpdateInvoiceStatus(invoiceID, status string) (*types.Invoice,
 		now := time.Now()
 		invoice.SentAt = &now
 	}
-	
+
 	if status == "paid" && invoice.PaidAt == nil {
 		now := time.Now()
 		invoice.PaidAt = &now
 	}
 
-	err = s.db.InvoiceRepo.Update(invoice)
+	err = s.repo.Update(invoice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update invoice: %w", err)
 	}
 
-	event := types.NewEvent("invoice_status_updated", "invoice_service", map[string]interface{}{
-		"invoice_id":  invoice.ID,
-		"old_status":  oldStatus,
-		"new_status":  status,
-		"client_id":   invoice.ClientID,
-		"project_id":  invoice.ProjectID,
+	event := types.NewEvent("invoice_status_updated", "invoice_service", map[string]any{
+		"invoice_id": invoice.ID,
+		"old_status": oldStatus,
+		"new_status": status,
+		"client_id":  invoice.ClientID,
+		"project_id": invoice.ProjectID,
 	})
-	
+
 	s.eventBus.Publish("invoice.status_updated", event)
 	return invoice, nil
 }
 
 func (s *Service) DeleteInvoice(invoiceID string) error {
-	invoice, err := s.db.InvoiceRepo.GetByID(invoiceID)
+	invoice, err := s.repo.GetByID(invoiceID)
 	if err != nil {
 		return fmt.Errorf("invoice not found: %w", err)
 	}
@@ -178,17 +169,17 @@ func (s *Service) DeleteInvoice(invoiceID string) error {
 		return fmt.Errorf("cannot delete paid invoice")
 	}
 
-	err = s.db.InvoiceRepo.Delete(invoiceID)
+	err = s.repo.Delete(invoiceID)
 	if err != nil {
 		return fmt.Errorf("failed to delete invoice: %w", err)
 	}
 
-	event := types.NewEvent("invoice_deleted", "invoice_service", map[string]interface{}{
+	event := types.NewEvent("invoice_deleted", "invoice_service", map[string]any{
 		"invoice_id": invoice.ID,
 		"client_id":  invoice.ClientID,
 		"project_id": invoice.ProjectID,
 	})
-	
+
 	s.eventBus.Publish("invoice.deleted", event)
 	return nil
 }

@@ -25,15 +25,15 @@ func NewHandlers(service *Service) *Handlers {
 func (h *Handlers) SetupRoutes(mux *http.ServeMux) {
 	// Time tracking endpoints
 	mux.HandleFunc("/api/time/start", h.handleStart)
-	mux.HandleFunc("/api/time/stop", h.handleStop) 
+	mux.HandleFunc("/api/time/stop", h.handleStop)
 	mux.HandleFunc("/api/time/pause", h.handlePause)
 	mux.HandleFunc("/api/time/resume", h.handleResume)
 	mux.HandleFunc("/api/time/current", h.handleGetCurrent)
 	mux.HandleFunc("/api/time/update", h.handleUpdate)
-	
+
 	// Health check
 	mux.HandleFunc("/health", h.handleHealth)
-	
+
 	log.Println("Time API routes configured")
 }
 
@@ -45,11 +45,11 @@ type StartTimerRequest struct {
 }
 
 type TimerResponse struct {
-	Success   bool              `json:"success"`
-	Data      *types.TimeEntry  `json:"data,omitempty"`
-	Error     string            `json:"error,omitempty"`
-	Message   string            `json:"message,omitempty"`
-	Duration  int64             `json:"current_duration,omitempty"`
+	Success  bool             `json:"success"`
+	Data     *types.TimeEntry `json:"data,omitempty"`
+	Error    string           `json:"error,omitempty"`
+	Message  string           `json:"message,omitempty"`
+	Duration int64            `json:"current_duration,omitempty"`
 }
 
 type UpdateTimerRequest struct {
@@ -175,14 +175,14 @@ func (h *Handlers) handleGetCurrent(w http.ResponseWriter, r *http.Request) {
 
 	// Get current duration
 	duration := h.service.GetCurrentDuration(userID)
-	
+
 	response := TimerResponse{
 		Success:  true,
 		Data:     entry,
 		Duration: duration,
 		Message:  "Active timer found",
 	}
-	
+
 	h.sendResponse(w, response)
 }
 
@@ -213,7 +213,7 @@ func (h *Handlers) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
-	health := map[string]interface{}{
+	health := map[string]any{
 		"status":    "healthy",
 		"service":   "time-api",
 		"timestamp": time.Now(),

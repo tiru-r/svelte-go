@@ -97,7 +97,7 @@ func (eb *EventBus) setupStreams() error {
 			maxAge:   time.Hour * 24 * 30, // 30 days
 		},
 		{
-			name:     "EXPENSE_EVENTS", 
+			name:     "EXPENSE_EVENTS",
 			subjects: []string{"expense.>"},
 			maxAge:   time.Hour * 24 * 90, // 90 days for tax records
 		},
@@ -218,17 +218,17 @@ func (eb *EventBus) Close() error {
 }
 
 // GetStats returns NATS server statistics
-func (eb *EventBus) GetStats() map[string]interface{} {
+func (eb *EventBus) GetStats() map[string]any {
 	if eb.server != nil {
 		varz, _ := eb.server.Varz(nil)
-		return map[string]interface{}{
-			"connections":    varz.Connections,
-			"subscriptions":  varz.Subscriptions,
-			"in_msgs":        varz.InMsgs,
-			"out_msgs":       varz.OutMsgs,
-			"in_bytes":       varz.InBytes,
-			"out_bytes":      varz.OutBytes,
-			"uptime":         varz.Now.Sub(varz.Start),
+		return map[string]any{
+			"connections":   varz.Connections,
+			"subscriptions": varz.Subscriptions,
+			"in_msgs":       varz.InMsgs,
+			"out_msgs":      varz.OutMsgs,
+			"in_bytes":      varz.InBytes,
+			"out_bytes":     varz.OutBytes,
+			"uptime":        varz.Now.Sub(varz.Start),
 		}
 	}
 	return nil

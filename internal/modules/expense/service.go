@@ -5,19 +5,20 @@ import (
 	"log"
 	"time"
 
-	"svelte-go/internal/shared/database"
 	"svelte-go/internal/shared/types"
+
+	"github.com/dgraph-io/badger/v4"
 )
 
 type Service struct {
 	eventBus types.EventBus
-	db       *database.BadgerDB
+	repo     *Repository
 }
 
-func NewService(eventBus types.EventBus, db *database.BadgerDB) *Service {
+func NewService(eventBus types.EventBus, db *badger.DB) *Service {
 	service := &Service{
 		eventBus: eventBus,
-		db:       db,
+		repo:     NewRepository(db),
 	}
 
 	service.setupEventSubscriptions()
@@ -27,7 +28,7 @@ func NewService(eventBus types.EventBus, db *database.BadgerDB) *Service {
 func (s *Service) setupEventSubscriptions() {
 	s.eventBus.SubscribeQueue("client.project.started", "expense_service", s.handleProjectStarted)
 	s.eventBus.SubscribeQueue("time.entry.completed", "expense_service", s.handleTimeEntryCompleted)
-	
+
 	log.Println("Expense service event subscriptions configured")
 }
 
@@ -44,35 +45,35 @@ func (s *Service) CreateExpense(userID, projectID, category, description string,
 		UpdatedAt:   time.Now(),
 	}
 
-	err := s.db.ExpenseRepo.Create(expense)
+	err := s.repo.Create(expense)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create expense: %w", err)
 	}
 
-	event := types.NewEvent("expense_created", "expense_service", map[string]interface{}{
+	event := types.NewEvent("expense_created", "expense_service", map[string]any{
 		"expense_id": expense.ID,
 		"user_id":    expense.UserID,
 		"project_id": expense.ProjectID,
 		"amount":     expense.Amount,
 		"category":   expense.Category,
 	})
-	
+
 	s.eventBus.Publish("expense.created", event)
 	log.Printf("💰 Expense created: $%.2f for %s", expense.Amount, expense.Description)
-	
+
 	return expense, nil
 }
 
 func (s *Service) GetExpenses(userID string) ([]*types.Expense, error) {
-	return s.db.ExpenseRepo.GetByUserID(userID)
+	return s.repo.GetByUserID(userID)
 }
 
 func (s *Service) GetExpensesByProject(projectID string) ([]*types.Expense, error) {
-	return s.db.ExpenseRepo.GetByProjectID(projectID)
+	return s.repo.GetByProjectID(projectID)
 }
 
-func (s *Service) UpdateExpense(expenseID string, updates map[string]interface{}) (*types.Expense, error) {
-	expense, err := s.db.ExpenseRepo.GetByID(expenseID)
+func (s *Service) UpdateExpense(expenseID string, updates map[string]any) (*types.Expense, error) {
+	expense, err := s.repo.GetByID(expenseID)
 	if err != nil {
 		return nil, fmt.Errorf("expense not found: %w", err)
 	}
@@ -86,41 +87,41 @@ func (s *Service) UpdateExpense(expenseID string, updates map[string]interface{}
 	if category, ok := updates["category"].(string); ok {
 		expense.Category = category
 	}
-	
+
 	expense.UpdatedAt = time.Now()
 
-	err = s.db.ExpenseRepo.Update(expense)
+	err = s.repo.Update(expense)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update expense: %w", err)
 	}
 
-	event := types.NewEvent("expense_updated", "expense_service", map[string]interface{}{
+	event := types.NewEvent("expense_updated", "expense_service", map[string]any{
 		"expense_id": expense.ID,
 		"user_id":    expense.UserID,
 		"updates":    updates,
 	})
-	
+
 	s.eventBus.Publish("expense.updated", event)
 	return expense, nil
 }
 
 func (s *Service) DeleteExpense(expenseID string) error {
-	expense, err := s.db.ExpenseRepo.GetByID(expenseID)
+	expense, err := s.repo.GetByID(expenseID)
 	if err != nil {
 		return fmt.Errorf("expense not found: %w", err)
 	}
 
-	err = s.db.ExpenseRepo.Delete(expenseID)
+	err = s.repo.Delete(expenseID)
 	if err != nil {
 		return fmt.Errorf("failed to delete expense: %w", err)
 	}
 
-	event := types.NewEvent("expense_deleted", "expense_service", map[string]interface{}{
+	event := types.NewEvent("expense_deleted", "expense_service", map[string]any{
 		"expense_id": expense.ID,
 		"user_id":    expense.UserID,
 		"project_id": expense.ProjectID,
 	})
-	
+
 	s.eventBus.Publish("expense.deleted", event)
 	return nil
 }

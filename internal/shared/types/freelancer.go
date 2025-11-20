@@ -18,35 +18,35 @@ type User struct {
 
 // Client represents a client/customer
 type Client struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	Name        string    `json:"name"`
-	Email       string    `json:"email"`
-	Company     string    `json:"company"`
-	Phone       string    `json:"phone"`
-	HourlyRate  float64   `json:"hourly_rate"`
-	Currency    string    `json:"currency"`
-	Address     string    `json:"address"`
-	Notes       string    `json:"notes"`
-	IsActive    bool      `json:"is_active"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID         string    `json:"id"`
+	UserID     string    `json:"user_id"`
+	Name       string    `json:"name"`
+	Email      string    `json:"email"`
+	Company    string    `json:"company"`
+	Phone      string    `json:"phone"`
+	HourlyRate float64   `json:"hourly_rate"`
+	Currency   string    `json:"currency"`
+	Address    string    `json:"address"`
+	Notes      string    `json:"notes"`
+	IsActive   bool      `json:"is_active"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Project represents a project for a client
 type Project struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	ClientID    string    `json:"client_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	HourlyRate  float64   `json:"hourly_rate"`
-	Currency    string    `json:"currency"`
-	Status      string    `json:"status"` // active, paused, completed
-	StartDate   time.Time `json:"start_date"`
+	ID          string     `json:"id"`
+	UserID      string     `json:"user_id"`
+	ClientID    string     `json:"client_id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	HourlyRate  float64    `json:"hourly_rate"`
+	Currency    string     `json:"currency"`
+	Status      string     `json:"status"` // active, paused, completed
+	StartDate   time.Time  `json:"start_date"`
 	EndDate     *time.Time `json:"end_date,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // TimeEntry represents a time tracking entry
@@ -121,10 +121,10 @@ type Invoice struct {
 
 // APIResponse represents a standard API response
 type APIResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Message string      `json:"message,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // NewTimeEntry creates a new time entry with generated ID

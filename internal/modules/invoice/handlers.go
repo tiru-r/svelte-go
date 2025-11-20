@@ -25,7 +25,7 @@ func (h *Handlers) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/invoice/status", h.handleUpdateStatus)
 	mux.HandleFunc("DELETE /api/invoice/delete", h.handleDeleteInvoice)
 	mux.HandleFunc("GET /api/invoice/health", h.handleHealth)
-	
+
 	log.Println("Invoice API routes configured")
 }
 
@@ -64,11 +64,11 @@ func (h *Handlers) handleCreateInvoice(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleGenerateFromTimeEntries(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		UserID    string `json:"user_id"`
-		ClientID  string `json:"client_id"`
-		ProjectID string `json:"project_id"`
-		StartDate string `json:"start_date"`
-		EndDate   string `json:"end_date"`
+		UserID      string             `json:"user_id"`
+		ClientID    string             `json:"client_id"`
+		ProjectID   string             `json:"project_id"`
+		HourlyRate  float64            `json:"hourly_rate"`
+		TimeEntries []*types.TimeEntry `json:"time_entries"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -76,24 +76,12 @@ func (h *Handlers) handleGenerateFromTimeEntries(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if req.UserID == "" || req.ClientID == "" || req.ProjectID == "" {
+	if req.UserID == "" || req.ClientID == "" || req.ProjectID == "" || req.HourlyRate <= 0 || len(req.TimeEntries) == 0 {
 		http.Error(w, "Missing required fields", http.StatusBadRequest)
 		return
 	}
 
-	startDate, err := time.Parse("2006-01-02", req.StartDate)
-	if err != nil {
-		http.Error(w, "Invalid start_date format", http.StatusBadRequest)
-		return
-	}
-
-	endDate, err := time.Parse("2006-01-02", req.EndDate)
-	if err != nil {
-		http.Error(w, "Invalid end_date format", http.StatusBadRequest)
-		return
-	}
-
-	invoice, err := h.service.GenerateFromTimeEntries(req.UserID, req.ClientID, req.ProjectID, startDate, endDate)
+	invoice, err := h.service.GenerateFromTimeEntries(req.UserID, req.ClientID, req.ProjectID, req.HourlyRate, req.TimeEntries)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -206,7 +194,7 @@ func (h *Handlers) handleDeleteInvoice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":    "healthy",
 		"module":    "invoice",
 		"timestamp": time.Now(),

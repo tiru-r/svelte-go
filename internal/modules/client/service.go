@@ -5,19 +5,22 @@ import (
 	"log"
 	"time"
 
-	"svelte-go/internal/shared/database"
 	"svelte-go/internal/shared/types"
+
+	"github.com/dgraph-io/badger/v4"
 )
 
 type Service struct {
-	eventBus types.EventBus
-	db       *database.BadgerDB
+	eventBus    types.EventBus
+	clientRepo  *ClientRepository
+	projectRepo *ProjectRepository
 }
 
-func NewService(eventBus types.EventBus, db *database.BadgerDB) *Service {
+func NewService(eventBus types.EventBus, db *badger.DB) *Service {
 	service := &Service{
-		eventBus: eventBus,
-		db:       db,
+		eventBus:    eventBus,
+		clientRepo:  NewClientRepository(db),
+		projectRepo: NewProjectRepository(db),
 	}
 
 	service.setupEventSubscriptions()
@@ -27,7 +30,7 @@ func NewService(eventBus types.EventBus, db *database.BadgerDB) *Service {
 func (s *Service) setupEventSubscriptions() {
 	s.eventBus.SubscribeQueue("invoice.generated", "client_service", s.handleInvoiceGenerated)
 	s.eventBus.SubscribeQueue("time.entry.completed", "client_service", s.handleTimeEntryCompleted)
-	
+
 	log.Println("Client service event subscriptions configured")
 }
 
@@ -42,22 +45,22 @@ func (s *Service) CreateClient(userID, name, email, company string) (*types.Clie
 		UpdatedAt: time.Now(),
 	}
 
-	err := s.db.ClientRepo.Create(client)
+	err := s.clientRepo.Create(client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
-	event := types.NewEvent("client_created", "client_service", map[string]interface{}{
+	event := types.NewEvent("client_created", "client_service", map[string]any{
 		"client_id": client.ID,
 		"user_id":   client.UserID,
 		"name":      client.Name,
 		"email":     client.Email,
 		"company":   client.Company,
 	})
-	
+
 	s.eventBus.Publish("client.created", event)
 	log.Printf("👤 Client created: %s (%s)", client.Name, client.Company)
-	
+
 	return client, nil
 }
 
@@ -74,39 +77,39 @@ func (s *Service) CreateProject(clientID, userID, name, description string, hour
 		UpdatedAt:   time.Now(),
 	}
 
-	err := s.db.ProjectRepo.Create(project)
+	err := s.projectRepo.Create(project)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create project: %w", err)
 	}
 
-	event := types.NewEvent("project_created", "client_service", map[string]interface{}{
-		"project_id":   project.ID,
-		"client_id":    project.ClientID,
-		"user_id":      project.UserID,
-		"name":         project.Name,
-		"hourly_rate":  project.HourlyRate,
+	event := types.NewEvent("project_created", "client_service", map[string]any{
+		"project_id":  project.ID,
+		"client_id":   project.ClientID,
+		"user_id":     project.UserID,
+		"name":        project.Name,
+		"hourly_rate": project.HourlyRate,
 	})
-	
+
 	s.eventBus.Publish("client.project.started", event)
 	log.Printf("📋 Project created: %s (Rate: $%.2f/hr)", project.Name, project.HourlyRate)
-	
+
 	return project, nil
 }
 
 func (s *Service) GetClients(userID string) ([]*types.Client, error) {
-	return s.db.ClientRepo.GetByUserID(userID)
+	return s.clientRepo.GetByUserID(userID)
 }
 
 func (s *Service) GetProjects(userID string) ([]*types.Project, error) {
-	return s.db.ProjectRepo.GetByUserID(userID)
+	return s.projectRepo.GetByUserID(userID)
 }
 
 func (s *Service) GetProjectsByClient(clientID string) ([]*types.Project, error) {
-	return s.db.ProjectRepo.GetByClientID(clientID)
+	return s.projectRepo.GetByClientID(clientID)
 }
 
-func (s *Service) UpdateClient(clientID string, updates map[string]interface{}) (*types.Client, error) {
-	client, err := s.db.ClientRepo.GetByID(clientID)
+func (s *Service) UpdateClient(clientID string, updates map[string]any) (*types.Client, error) {
+	client, err := s.clientRepo.GetByID(clientID)
 	if err != nil {
 		return nil, fmt.Errorf("client not found: %w", err)
 	}
@@ -126,26 +129,26 @@ func (s *Service) UpdateClient(clientID string, updates map[string]interface{}) 
 	if address, ok := updates["address"].(string); ok {
 		client.Address = address
 	}
-	
+
 	client.UpdatedAt = time.Now()
 
-	err = s.db.ClientRepo.Update(client)
+	err = s.clientRepo.Update(client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update client: %w", err)
 	}
 
-	event := types.NewEvent("client_updated", "client_service", map[string]interface{}{
+	event := types.NewEvent("client_updated", "client_service", map[string]any{
 		"client_id": client.ID,
 		"user_id":   client.UserID,
 		"updates":   updates,
 	})
-	
+
 	s.eventBus.Publish("client.updated", event)
 	return client, nil
 }
 
-func (s *Service) UpdateProject(projectID string, updates map[string]interface{}) (*types.Project, error) {
-	project, err := s.db.ProjectRepo.GetByID(projectID)
+func (s *Service) UpdateProject(projectID string, updates map[string]any) (*types.Project, error) {
+	project, err := s.projectRepo.GetByID(projectID)
 	if err != nil {
 		return nil, fmt.Errorf("project not found: %w", err)
 	}
@@ -162,20 +165,20 @@ func (s *Service) UpdateProject(projectID string, updates map[string]interface{}
 	if status, ok := updates["status"].(string); ok {
 		project.Status = status
 	}
-	
+
 	project.UpdatedAt = time.Now()
 
-	err = s.db.ProjectRepo.Update(project)
+	err = s.projectRepo.Update(project)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update project: %w", err)
 	}
 
-	event := types.NewEvent("project_updated", "client_service", map[string]interface{}{
+	event := types.NewEvent("project_updated", "client_service", map[string]any{
 		"project_id": project.ID,
 		"user_id":    project.UserID,
 		"updates":    updates,
 	})
-	
+
 	s.eventBus.Publish("client.project.updated", event)
 	return project, nil
 }

@@ -24,7 +24,7 @@ func (h *Handlers) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/expense/update", h.handleUpdateExpense)
 	mux.HandleFunc("DELETE /api/expense/delete", h.handleDeleteExpense)
 	mux.HandleFunc("GET /api/expense/health", h.handleHealth)
-	
+
 	log.Println("Expense API routes configured")
 }
 
@@ -108,8 +108,8 @@ func (h *Handlers) handleGetProjectExpenses(w http.ResponseWriter, r *http.Reque
 
 func (h *Handlers) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ExpenseID   string                 `json:"expense_id"`
-		Updates     map[string]interface{} `json:"updates"`
+		ExpenseID string         `json:"expense_id"`
+		Updates   map[string]any `json:"updates"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -160,7 +160,7 @@ func (h *Handlers) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":    "healthy",
 		"module":    "expense",
 		"timestamp": time.Now(),
