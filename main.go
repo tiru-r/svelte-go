@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"svelte-go/internal/events"
+	"svelte-go/internal/modules/auth"
 	"svelte-go/internal/modules/client"
 	"svelte-go/internal/modules/expense"
 	"svelte-go/internal/modules/invoice"
@@ -18,6 +20,20 @@ import (
 	"svelte-go/internal/shared/database"
 	"svelte-go/internal/shared/types"
 )
+
+// EventBusAdapter adapts the existing EventBus to auth module interface
+type EventBusAdapter struct {
+	bus *events.EventBus
+}
+
+func (e *EventBusAdapter) Publish(eventType string, data any) error {
+	eventData, ok := data.(map[string]any)
+	if !ok {
+		eventData = map[string]any{"data": data}
+	}
+	event := types.NewEvent(eventType, "auth", eventData)
+	return e.bus.Publish("AUTH_EVENTS", event)
+}
 
 func main() {
 	// Initialize shared database
@@ -36,6 +52,19 @@ func main() {
 
 	// Initialize modules
 	log.Println("🏗️  Initializing modular monolith...")
+
+	// Authentication module
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = auth.GenerateSecretKey()
+		log.Println("⚠️  Using generated JWT secret. Set JWT_SECRET env var for production")
+	}
+	authRepo := auth.NewRepository(db.DB())
+	// Create event adapter
+	eventAdapter := &EventBusAdapter{bus: eventBus}
+	authService := auth.NewService(authRepo, jwtSecret, eventAdapter)
+	authHandler := auth.NewHandler(authService)
+	authMiddleware := auth.NewMiddleware(authService)
 
 	// Time tracking module
 	timeService := timemodule.NewService(eventBus, db.DB())
@@ -56,11 +85,32 @@ func main() {
 	// Set up HTTP routes
 	mux := http.NewServeMux()
 
-	// Module routes
-	timeHandlers.SetupRoutes(mux)
-	expenseHandlers.SetupRoutes(mux)
-	clientHandlers.SetupRoutes(mux)
-	invoiceHandlers.SetupRoutes(mux)
+	// Auth routes (no middleware)
+	mux.HandleFunc("/api/auth/register", authHandler.Register)
+	mux.HandleFunc("/api/auth/login", authHandler.Login)
+	mux.HandleFunc("/api/auth/logout", authHandler.Logout)
+	mux.HandleFunc("/api/auth/verify", authHandler.VerifyToken)
+	mux.HandleFunc("/api/auth/profile", authHandler.GetProfile)
+	mux.HandleFunc("/api/auth/refresh", authHandler.RefreshToken)
+
+	// Module routes (protected) - wrap existing mux with auth middleware
+	protectedMux := http.NewServeMux()
+	timeHandlers.SetupRoutes(protectedMux)
+	expenseHandlers.SetupRoutes(protectedMux)
+	clientHandlers.SetupRoutes(protectedMux)
+	invoiceHandlers.SetupRoutes(protectedMux)
+
+	// Wrap all non-auth API routes with authentication
+	mux.Handle("/api/", http.StripPrefix("/api", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip auth for specific endpoints
+		if r.URL.Path == "/health" {
+			protectedMux.ServeHTTP(w, r)
+			return
+		}
+		authMiddleware.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+			protectedMux.ServeHTTP(w, r)
+		})(w, r)
+	})))
 
 	// System routes
 	mux.HandleFunc("/api/health", handleOverallHealth(db, eventBus))
@@ -72,7 +122,7 @@ func main() {
 	// Handle SPA routing by serving index.html for non-API routes
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve API routes normally
-		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
+		if strings.HasPrefix(r.URL.Path, "/api") {
 			http.NotFound(w, r)
 			return
 		}
@@ -90,7 +140,7 @@ func main() {
 
 	// Publish system startup event
 	startupEvent := types.NewEvent("system_started", "main", map[string]any{
-		"modules":      []string{"time", "expense", "client", "invoice"},
+		"modules":      []string{"auth", "time", "expense", "client", "invoice"},
 		"architecture": "modular_monolith",
 		"database":     "badger",
 		"events":       "nats_embedded",
@@ -121,14 +171,14 @@ func main() {
 		log.Printf("📡 Event-driven modular monolith")
 		log.Printf("🗄️  Database: Badger (%s)", "./data/freelancer_db")
 		log.Printf("📊 Available endpoints:")
+		log.Printf("   POST /api/auth/register   - Register user")
+		log.Printf("   POST /api/auth/login      - Login user")
+		log.Printf("   POST /api/auth/logout     - Logout user")
 		log.Printf("   GET  /api/health          - Overall health")
-		log.Printf("   POST /api/time/start      - Start timer")
-		log.Printf("   POST /api/time/stop       - Stop timer")
-		log.Printf("   GET  /api/time/current    - Current timer")
-		log.Printf("   POST /api/time/pause      - Pause timer")
-		log.Printf("   POST /api/time/resume     - Resume timer")
-		log.Printf("   PUT  /api/time/update     - Update timer")
-		log.Printf("   GET  /health              - Time module health")
+		log.Printf("   POST /api/time/start      - Start timer (protected)")
+		log.Printf("   POST /api/time/stop       - Stop timer (protected)")
+		log.Printf("   GET  /api/time/current    - Current timer (protected)")
+		log.Printf("   And more protected endpoints...")
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Server failed:", err)
@@ -187,7 +237,7 @@ func handleOverallHealth(db *database.BadgerDB, eventBus *events.EventBus) http.
 			"architecture": "modular_monolith",
 			"database": {"status": "` + dbStatus + `", "type": "badger"}, 
 			"events": {"status": "` + eventsStatus + `", "type": "nats_embedded"},
-			"modules": ["time", "expense", "client", "invoice"],
+			"modules": ["auth", "time", "expense", "client", "invoice"],
 			"timestamp": "` + time.Now().Format(time.RFC3339) + `"
 		}`
 
