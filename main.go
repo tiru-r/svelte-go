@@ -6,19 +6,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"svelte-go/internal/events"
-	"svelte-go/internal/modules/auth"
-	"svelte-go/internal/modules/client"
-	"svelte-go/internal/modules/expense"
-	"svelte-go/internal/modules/invoice"
-	timemodule "svelte-go/internal/modules/time"
-	"svelte-go/internal/shared/database"
-	"svelte-go/internal/shared/types"
+	"datastar-go/internal/events"
+	"datastar-go/internal/modules/auth"
+	"datastar-go/internal/modules/client"
+	"datastar-go/internal/modules/expense"
+	"datastar-go/internal/modules/invoice"
+	timemodule "datastar-go/internal/modules/time"
+	"datastar-go/internal/shared/database"
+	"datastar-go/internal/shared/types"
+	"datastar-go/internal/web"
 )
 
 // EventBusAdapter adapts the existing EventBus to auth module interface
@@ -82,6 +82,9 @@ func main() {
 	invoiceService := invoice.NewService(eventBus, db.DB())
 	invoiceHandlers := invoice.NewHandlers(invoiceService)
 
+	// Web handlers for Templ/Datastar frontend
+	webHandlers := web.NewHandlers(clientService, expenseService, invoiceService, timeService)
+
 	// Set up HTTP routes
 	mux := http.NewServeMux()
 
@@ -115,11 +118,12 @@ func main() {
 	// System routes
 	mux.HandleFunc("/api/health", handleOverallHealth(db, eventBus))
 
-	// Serve static frontend files
-	staticDir := "./web/build"
-	fileServer := http.FileServer(http.Dir(staticDir))
-
-	// Handle SPA routing by serving index.html for non-API routes
+	// Set up web routes 
+	webMux := http.NewServeMux()
+	webHandlers.SetupRoutes(webMux)
+	
+	
+	// Wrap web routes 
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve API routes normally
 		if strings.HasPrefix(r.URL.Path, "/api") {
@@ -127,15 +131,8 @@ func main() {
 			return
 		}
 
-		// Try to serve the requested file
-		filePath := filepath.Join(staticDir, r.URL.Path)
-		if _, err := os.Stat(filePath); err == nil {
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-
-		// If file doesn't exist, serve index.html for SPA routing
-		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		// Serve web pages - auth protection handled by JavaScript
+		webMux.ServeHTTP(w, r)
 	}))
 
 	// Publish system startup event

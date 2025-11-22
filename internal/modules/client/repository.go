@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"svelte-go/internal/shared/types"
+	"datastar-go/internal/shared/types"
 
 	"github.com/dgraph-io/badger/v4"
 )

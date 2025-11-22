@@ -9,7 +9,7 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 
-	"svelte-go/internal/shared/types"
+	"datastar-go/internal/shared/types"
 )
 
 // EventBus implements the types.EventBus interface using NATS

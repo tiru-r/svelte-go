@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"svelte-go/internal/shared/types"
+	"datastar-go/internal/shared/types"
 )
 
 // Handlers handles HTTP requests for the time module

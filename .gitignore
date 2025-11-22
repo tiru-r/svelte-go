@@ -9,7 +9,7 @@
 go.work
 vendor/
 data/
-svelte-go
+datastar-go
 
 # Node
 node_modules/
@@ -22,9 +22,6 @@ yarn-error.log*
 .env.local
 .env.*.local
 
-# Svelte
-.svelte-kit/
-package/
 
 # OS
 .DS_Store
