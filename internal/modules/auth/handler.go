@@ -65,6 +65,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set HTTP-only cookie for web browsers
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    response.Token,
+		Path:     "/",
+		MaxAge:   86400, // 24 hours
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"success": true,
@@ -85,6 +96,17 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to logout", http.StatusInternalServerError)
 		return
 	}
+
+	// Clear auth cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteStrictMode,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{

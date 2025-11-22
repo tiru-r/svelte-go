@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"datastar-go/internal/modules/auth"
 	"datastar-go/internal/modules/client"
 	"datastar-go/internal/modules/expense"
 	"datastar-go/internal/modules/invoice"
@@ -33,10 +34,6 @@ func NewHandlers(
 }
 
 func (h *Handlers) SetupRoutes(mux *http.ServeMux) {
-	// Authentication page routes
-	mux.HandleFunc("/login", h.LoginPage)
-	mux.HandleFunc("/register", h.RegisterPage)
-	
 	// Main application page routes  
 	mux.HandleFunc("/", h.Dashboard)
 	mux.HandleFunc("/clients", h.Clients)
@@ -116,6 +113,7 @@ func (h *Handlers) Timer(w http.ResponseWriter, r *http.Request) {
 	templates.Timer().Render(r.Context(), w)
 }
 
+
 // DashboardStats provides statistics for the dashboard
 func (h *Handlers) DashboardStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -123,8 +121,11 @@ func (h *Handlers) DashboardStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	// Get actual counts from services
 	clients, err := h.clientService.GetClients(userID)
@@ -153,10 +154,10 @@ func (h *Handlers) DashboardStats(w http.ResponseWriter, r *http.Request) {
 
 	// Create response data
 	stats := map[string]interface{}{
-		"clients_count":  clientsCount,
-		"invoices_count": invoicesCount,
-		"expenses_count": expensesCount,
-		"active_timers":  activeTimers,
+		"clientsCount":  clientsCount,
+		"invoicesCount": invoicesCount,
+		"expensesCount": expensesCount,
+		"activeTimers":  activeTimers,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -170,8 +171,11 @@ func (h *Handlers) GetClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	clients, err := h.clientService.GetClients(userID)
 	if err != nil {
@@ -223,8 +227,11 @@ func (h *Handlers) GetInvoices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	invoices, err := h.invoiceService.GetInvoices(userID)
 	if err != nil {
@@ -275,8 +282,11 @@ func (h *Handlers) GetExpenses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	expenses, err := h.expenseService.GetExpenses(userID)
 	if err != nil {
@@ -327,8 +337,11 @@ func (h *Handlers) GetTimeEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	// userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	// TODO: Implement GetTimeEntries method in time service
 	// For now, return empty array
@@ -347,8 +360,12 @@ func (h *Handlers) StartTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+	
 	projectID := "default-project"
 	description := "Work session"
 	
@@ -373,8 +390,11 @@ func (h *Handlers) StopTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	entry, err := h.timeService.StopTimer(userID)
 	if err != nil {
@@ -397,8 +417,11 @@ func (h *Handlers) PauseTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get actual user ID from auth context
-	userID := "default-user"
+	userID := auth.GetUserID(r)
+	if userID == "" {
+		http.Error(w, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
 	
 	entry, err := h.timeService.PauseTimer(userID)
 	if err != nil {

@@ -122,16 +122,25 @@ func main() {
 	webMux := http.NewServeMux()
 	webHandlers.SetupRoutes(webMux)
 	
+	// Add login/register pages (no auth required)
+	mux.HandleFunc("/login", webHandlers.LoginPage)
+	mux.HandleFunc("/register", webHandlers.RegisterPage)
 	
-	// Wrap web routes 
-	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Wrap protected web routes with auth middleware
+	mux.Handle("/", authMiddleware.RequireWebAuth(func(w http.ResponseWriter, r *http.Request) {
 		// Serve API routes normally
 		if strings.HasPrefix(r.URL.Path, "/api") {
 			http.NotFound(w, r)
 			return
 		}
 
-		// Serve web pages - auth protection handled by JavaScript
+		// Skip auth for login/register pages  
+		if r.URL.Path == "/login" || r.URL.Path == "/register" {
+			webMux.ServeHTTP(w, r)
+			return
+		}
+
+		// Serve protected web pages
 		webMux.ServeHTTP(w, r)
 	}))
 

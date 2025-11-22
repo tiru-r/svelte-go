@@ -116,3 +116,83 @@ func GetClaims(r *http.Request) *AuthClaims {
 	}
 	return nil
 }
+
+// RequireWebAuth handles auth for web pages (supports both cookies and Authorization header)
+func (m *Middleware) RequireWebAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var tokenString string
+		
+		// Try Authorization header first (for API calls)
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			tokenString = strings.Replace(authHeader, "Bearer ", "", 1)
+		} else {
+			// Try cookie (for web pages)
+			if cookie, err := r.Cookie("auth_token"); err == nil {
+				tokenString = cookie.Value
+			}
+		}
+		
+		if tokenString == "" {
+			// Redirect to login for web requests, return 401 for API requests
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.Error(w, "Authentication required", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
+			return
+		}
+
+		claims, err := m.service.VerifyToken(tokenString)
+		if err != nil {
+			log.Printf("Token verification failed: %v", err)
+			// Clear invalid cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "auth_token",
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   false, // Set to true in production with HTTPS
+				SameSite: http.SameSiteStrictMode,
+			})
+			
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
+			return
+		}
+
+		user, err := m.service.GetUserByID(claims.UserID)
+		if err != nil {
+			log.Printf("User not found: %v", err)
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.Error(w, "User not found", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
+			return
+		}
+
+		if !user.IsActive {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.Error(w, "Account deactivated", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+		ctx = context.WithValue(ctx, UserKey, user)
+		ctx = context.WithValue(ctx, ClaimsKey, claims)
+
+		r.Header.Set("X-User-ID", claims.UserID)
+		r.Header.Set("X-Username", claims.Username)
+		r.Header.Set("X-Email", claims.Email)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}

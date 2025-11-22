@@ -45,25 +45,53 @@ A comprehensive freelancer management system featuring **time tracking**, **clie
 
 ### Prerequisites
 - **Go 1.25+** - Backend development
-- **Templ CLI** - Template generation (`go install github.com/a-h/templ/cmd/templ@latest`)
+- **Templ CLI** - Template generation (auto-installed by run scripts)
 
-### Run the Application
+### 🏃‍♂️ Run the Application
 
+**Quick Development (Recommended):**
 ```bash
-# Generate templates
+# Fastest way to start (using Make)
+make dev
+
+# Or with scripts directly
+./dev.sh
+
+# Custom port
+PORT=8000 ./dev.sh
+# or
+make dev-3000
+```
+
+**Full Production Build:**
+```bash
+# Production optimized build (using Make)
+make run
+
+# Or with scripts directly
+./run.sh --prod
+
+# Custom port with clean build
+./run.sh --port 3000 --clean
+
+# See all available commands
+make help
+./run.sh --help
+```
+
+**Manual Build:**
+```bash
+# Generate templates and build manually
 templ generate
-
-# Build and run
-go build && ./datastar-go
-
-# Or with custom port
-PORT=3003 ./datastar-go
+go build -o svelte-go ./
+PORT=8080 ./svelte-go
 ```
 
 **Access the application:**
-- **Frontend**: http://localhost:8080
+- **Frontend**: http://localhost:8080 (or your custom port)
 - **API**: http://localhost:8080/api/*
 - **Health Check**: http://localhost:8080/api/health
+- **Login**: http://localhost:8080/login
 
 ### First Time Setup
 
@@ -315,12 +343,71 @@ GET    /api/dashboard/stats  # Dashboard statistics
 
 ## 🚀 Development
 
-### Local Development
+### 🔧 Development Tools
+
+**Make Commands (Recommended):**
 ```bash
-# Start with hot reload
+# See all available commands
+make help
+
+# Quick development start
 make dev
 
-# Or manually
+# Production server
+make run
+
+# Build optimized binary
+make build
+
+# Clean all artifacts
+make clean
+
+# Install dependencies
+make deps
+```
+
+**Development Scripts:**
+```bash
+# Fastest way to start developing
+./dev.sh
+
+# With custom port
+PORT=3003 ./dev.sh
+
+# Kill existing processes automatically
+# Auto-generate templates
+# Quick build and run
+```
+
+**Full Featured Runner:**
+```bash
+# Full production build with all features
+./run.sh
+
+# Development mode (default)
+./run.sh --port 8080
+
+# Production optimized
+./run.sh --prod --port 80
+
+# Clean build (removes data and build dirs)
+./run.sh --clean
+
+# See all options
+./run.sh --help
+```
+
+**Script Features:**
+- ✅ **Auto-dependency checking** - Installs templ if missing
+- ✅ **Template generation** - Automatically generates Go templates
+- ✅ **Process management** - Kills existing processes on port
+- ✅ **Environment setup** - Configures JWT secrets and directories
+- ✅ **Production optimization** - Optimized builds with --prod flag
+- ✅ **Graceful shutdown** - Proper cleanup on Ctrl+C
+
+### Manual Development
+```bash
+# Start with hot reload (if you prefer manual control)
 templ generate --watch &
 go run main.go
 
